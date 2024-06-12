@@ -1,0 +1,218 @@
+def data_c_to_why3(Type_c s):
+    Si s est un type de base:
+        Envoyer la valeur vers why3.
+    Si s est une struct:
+        Pour chaque attribut:
+            Si c'est un attribut récursif par pointeur:
+                Envoyer une copie de la valeur tenue par le pointeur de cet attribut, et pas le pointeur.
+            Sinon:
+                Envoyer la valeur.
+
+def data_why3_to_c(Struct_why3 s):
+    classe_c = c_class_from_why3structname(s);
+    si type(s) est un type de base
+        Envoyer la valeur directement
+    Si type(s) == struct:
+        Pour chaque attribut:
+            Si c'est un attribut récursif par pointeur:
+                Allouer la donnée avec un malloc, et affecter l'attribut vers le pointeur, vers la donnée du malloc.
+                Ecrire les données de l'attribut récursif dans l'espace mémoire réservé par ce malloc.
+            Sinon:
+                Envoyer la valeur.
+
+def create_c_struct(Fichier_c code):
+    Pour chaque struct s:
+        [| struct {name} { ... } |] =
+            type {name} { ... }
+        [| { type }* |] = 
+            pointer type
+        [| { type } { name }; |] =
+            name: type;
+        [| struct {name} {
+            struct { ...2 } { name2 };
+            ...
+        }|] =
+            type name2 {
+                format(...2)
+            } with name = {
+                format(...)
+            }
+        [| struct {name} {
+            struct name *name2
+            ...
+        }] = 
+            type name {
+                name2: option name
+                ...
+            } + marquée comme altérée
+
+        [| name: type |] + affectée après initialisation =
+            name: ref type
+
+        ( C'est pour l'après formattage )
+        [| type name {...} |] =
+            type name {
+                format_variables(...)
+            }
+
+            def compare_name (a: name) (b: name) =
+                Si il y a un attribut récursif y:
+                    size_of_recursion a.y // Boucler sur a.y jusqu'à null
+                Sinon:
+                    size_of_recursion OU
+                        jusqu'à qu'il y ai une boucle, qu'on puisse atteindre a depuis a.y
+
+                Pour chaque attribut x, comparer:
+                    Si c'est un attribut récursif:
+                        compare_name a.x b.x
+                    Sinon:
+                        a.x = b.x
+
+attribut_rec: "hyper-paramètre"
+y: A récupérer dans la fonction, car local
+def gen_modif (y: T) (parent_de_y: Z) (valeur_attribution: X) (retour: ref T):
+    variant {size_of_recursion parent_de_y}
+
+    si parent_de_y != y:
+        renvoyer {
+            attribut_rec = gen_modif(attribut_rec, y, y[attribut_rec], valeur_attribution),
+            ... (autres attributs)
+        }
+    sinon:
+        retour := {
+            attribut_rec = valeur_attribution,
+            ... (autres attributs)
+        }
+
+        renvoyer !retour
+
+
+def c_to_why3(Fonction_C f):
+    Pour toute données (instructions + acsl):
+        [| !(^=) |] = not (Retirer le not du C)
+        [| ensures ...; |] = ensures {...} ( Pareil pour variant, invariant, requires, assumes )
+        [| struct type name |] =
+            type name
+        [| type name (type1 x, type2 y, ...){code_body} |] =
+            let (rec si code_body.find(name)) name (x: type1) (y: type2) (...) = code_body (;; si pas dans un code_body sinon in)
+                Si un type est une struct altérée, ou utilise des attributs avec des struct altérés, alors rajouter ref devant type.
+        [| (type*)0 | = \null | == \null |] = 
+            None
+        [| var_name -> var_name2 |] = 
+            si var_name est pointeur:
+                !^var_name.var_name2
+            sinon:
+                !@var_name.var_name2
+        [| lambda(x,y) |] = 
+            (lambda x y)
+        [| *var_name |] =
+            Type: Struct altérée?:
+                !var_name
+            Type: Option?:
+                !@var_name
+            Sinon:
+                !^var_name
+        !(type | let) [| var_name |] =
+            Type: ref?: 
+                !var_name
+            Type: option ?:
+                !@var_name
+            Sinon:
+                var_name
+
+            A vérifier, quoi faire si c'est une ref de ref ?
+        [| var_name == None |] = 
+            Option.is_none var_name
+        [| struct | loop assigns ... |] = 
+            Vide
+        [| loop x |] = 
+            x
+        [| \valid(var1, var2, ...) |] = 
+            (valid var1 var2 ...)
+        [| if (cond) {code_body} else {code_body} |] = 
+            if (cond) then (code_body) else (code_body)
+        [| compare_func x None |] =
+           valid x
+        [| while (cond) {code_body} |] =
+            while (cond) do
+                code_body
+            done
+        [| x = &y |] =
+            x := y
+        [| assigns x, y, ... |] =
+            writes{x, y, ...}
+        [| rvalue != rvalue |] =
+            not (rvalue = rvalue)
+        [| x == y |] ET x y sont des pointeurs de type T =
+            compare_T x y
+        [| \separated({var_names[]}) (&& | ||)?] =
+            Si (toute variable dans var_names n'est pas de type d'une struct altérée) alors
+                true
+            Sinon:
+                forall x: var_type. x in var_names: not compare_T var_names[0] x
+        [| type name = rvalue; |] =
+            let name = (ref, si réaffecté plus tard) rvalue in
+        [| func_name{Old}(...) |] =
+            old(func_name(...))
+        [| if (...1 rvalue1 = rvalue2 ...2) |] =
+            rvalue1 = rvalue2
+
+            if ...1 rvalue1 ...2
+        [| x = rvalue; |] =
+            x est une référence ?:
+                x := rvalue;
+            x est accessible depuis les attributs d'une variable y ?:
+                retour = ref None;
+
+                si type(x) == type(y)?:
+                    y := gen_modif(attribut_recursif, y, parent_de_y, valeur_attribution, retour);
+                sinon, pour l'attribut z permettant d'atteindre x:
+                    y.z := gen_modif(attribut_recursif, y, parent_de_y, valeur_attribution, retour);
+                x := retour;
+
+                Cela nécessitera de mettre à jour toutes les anciennes références vers cet objet.
+                    Il faut donc analyser les autres variables présentes dans la fonction et les mettre
+                    aussi à jour. ( Intervention humaine ?)
+                    Si il existe une variable en dehors de cette fonction qui utilise l'ancien objet
+                    alors il est impossible de transformer vers why3.
+
+                        
+
+
+        - Si il y a un type cast avec void*, alors il faut générer le code polymorphique
+        Comment pour les end de if, les returns ?
+
+        - Si c'est pas la même "couche" de pointeurs, rajouter ou déférencer.
+        - Si on a des behaviors:
+            Pour chaque behavior ( Cela n'existe pas en why3?) :
+                Si il y a des ensures:
+                    @ ensures {TOUT LES REQUIRES avec old ==> les conditions d'ensures}
+                Si il y a des assigns, on doit tous les mettre dans un seul writes commun.
+
+                Si le behavior n'est plus valide ( car il y avait des !separated, par exemple, ou est vide/donne aucune info),
+                    alors on supprime ce cas. Si il reste qu'un cas, on le mets "normalement" et non
+                    plus comme un sous cas.
+
+    Décaler tout les requires, ensures, etc... après le let, et pas avant.
+
+def args_c_to_why3(...):
+    Pour chaque argument, utiliser la fonction de conversion de la classe qu'on aura créer avant.
+
+def verif_c_why3(Fonction_C f, Arguments args Fichier_C code):
+    # Vérifier les pré-conditions
+    Alias interdit sur les classes récursives avec pointeur. 
+    Les pointeurs ne pointent que sur des adresses valides ou null
+    Une fonction ne peut pas prendre en paramètre une instance d'une struct récursive avec pointeur
+        sans l'objet parent de cette instance.
+    Une struct ne peut pas boucler sur elle-même.
+    asserts ==> Vide.
+
+    - Verifier que les requires côté C sont valides
+    - Si les classes côté why3 n'ont pas été faites, les créer:
+        - create_c_struct(code)
+    - f_why3 = c_to_why3(f)
+    - args_why3 = [Pour tout argument x de f: data_c_to_why3(x)]
+    - Vérifier le code why3
+    - Exécuter le code why3 et mettre ses résultats quelque part
+    - results = [Pour tout résultat x du côté why3: data_why3_to_c(x)]
+    - Vérifier que les ensures côté C sont valides

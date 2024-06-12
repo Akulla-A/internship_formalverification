@@ -1,0 +1,508 @@
+module STailQ
+    use ref.Ref
+    use option.Option
+    use ocaml.Exceptions
+    use int.Int
+    use set.Fset
+
+    exception Invalid_argument
+
+    (* Op *)
+    type pointer 'a = option (ref 'a)
+
+    (* This field has non-pure type, it cannot be used in a recursive type definition*)
+    type c_next = {
+        stqe_next: option int_item;
+    } with int_item = {
+        number: int;
+        c_next: c_next
+    }
+
+    (* Voir pourquoi ref *)
+    type inside_queue = {
+        mutable stqh_first: option int_item;
+        stqh_last: ref (option int_item)
+    }
+
+    type int_queue = pointer inside_queue
+
+    (* Shortcut *)
+    let function (!@) (q: option 'a) =
+        requires {q <> None}
+        writes {}
+        match q with
+            | Some x -> x
+        end
+
+    let function (!^) (q: pointer 'a) = 
+        requires {q <> None}
+
+        match q with
+            | Some x -> !x
+        end
+
+    predicate valid(q: option 'a) = not (Option.is_none q)
+
+    inductive elm_in_queue (q elm: option int_item) =
+        | equal: forall q: option int_item. valid q -> (elm_in_queue q q)
+        | r: forall q elm: option int_item.
+            valid q && elm_in_queue (!@q).c_next.stqe_next elm && valid elm -> elm_in_queue q elm
+
+    (* Changer définition *)
+    inductive one_instance (q: option int_item) (l: fset (option int_item)) =
+        | empty: one_instance None (Fset.empty)
+        | chain: forall q: option int_item, x: int, l: fset (option int_item).
+            one_instance q l /\ (not Fset.mem q l) ->
+            one_instance (Some { number = x; c_next = { stqe_next = q }}) (add q l)
+
+    (*predicate wellformed_item(q: option int_item) =
+        exists l: fset (option int_item). one_instance q l*)
+
+    inductive wellformed_item (q: option int_item) =
+        | empty22: wellformed_item None
+        | subQueue: forall q: option int_item.
+            valid q && not (elm_in_queue (!@q.c_next.stqe_next) q) && wellformed_item (!@q).c_next.stqe_next ->
+                wellformed_item q
+        (*exists l: fset (option int_item). one_instance q l*)
+        (*Il existe l tq one_instance q l*)
+
+    let rec function size_of_queue (i: option int_item): int
+        requires {wellformed_item i}
+        ensures {i = None -> result = 0}
+        ensures {i <> None -> result > 0}
+        ensures {wellformed_item i}
+        variant {i}
+    =
+        match i with
+            | None -> 0
+            | Some x -> (size_of_queue x.c_next.stqe_next) + 1 
+        end
+
+    let rec function last_element_queue (q: option int_item) =
+        requires {wellformed_item q}
+        variant {size_of_queue q}
+        ensures {wellformed_item result}
+        ensures {valid q -> valid result}
+
+        if ((Option.is_none q) || (Option.is_none (!@q).c_next.stqe_next)) then
+            q
+        else
+            last_element_queue (!@q).c_next.stqe_next
+
+    (*valid !^q.stqh_last /\*)
+    predicate wellformed_list (q: int_queue) =
+        wellformed_item (!^q).stqh_first /\
+        valid q /\
+        not (valid !((!^q).stqh_last)) /\
+        (valid (!^q).stqh_first -> 
+            !(!^q.stqh_last) = (!@(last_element_queue (!^q).stqh_first)).c_next.stqe_next) /\
+        (not valid (!^q).stqh_first -> !(!^q.stqh_last) = !^q.stqh_first)
+
+    predicate no_shared_elements(q: option int_item) (q2: option int_item) =
+        forall i2: option int_item. not ((elm_in_queue q i2) && (elm_in_queue q2 i2))
+
+    predicate wellformed_list_elm(q: int_queue) (elm: option int_item) =
+        valid(elm) /\
+        wellformed_list q /\
+        wellformed_item elm /\
+        no_shared_elements (!^q).stqh_first elm
+
+    (*val function size_of_queue (i: option int_item): int
+
+    axiom size_0_if_null:
+        forall s: option int_item. 0 <= size_of_queue s*)
+
+    (* logic/pred *)
+
+    let rec eq_enum (e1 e2: option int_item) : bool
+        requires {wellformed_item e1 /\ wellformed_item e2}
+        ensures {wellformed_item e1 /\ wellformed_item e2}
+        variant {size_of_queue e1, size_of_queue e2}
+        (* Rajouter requires résultat *)
+    =
+        match e1, e2 with
+            | None, None -> True
+            | Some x, Some y ->
+                x.number = y.number && eq_enum (x.c_next.stqe_next) (y.c_next.stqe_next)
+            | _ -> False
+        end
+
+    let rec function size_of_queue_byElement (i: option int_item) (toCheck: option int_item): int
+        variant {size_of_queue i}
+        requires {wellformed_item i}
+        requires {wellformed_item toCheck}
+    =
+        if ((Option.is_none i) || eq_enum i toCheck) then
+            0
+        else
+            (size_of_queue_byElement (!@i).c_next.stqe_next toCheck) + 1
+
+    lemma finite_queue:
+        forall q: option int_item.
+            valid q && wellformed_item q ->
+            q = None || !@(last_element_queue q).c_next.stqe_next = None
+
+    lemma strict_positive_size:
+        forall q: option int_item. valid q /\ wellformed_item q -> 1 <= size_of_queue q
+
+    lemma size_0_if_null:
+        forall q: option int_item. q = None -> (size_of_queue q) = 0
+    
+    lemma valid_child_is_strictly_smaller:
+        forall q: option int_item. q <> None /\ wellformed_item q ->
+            size_of_queue q = (size_of_queue (!@q).c_next.stqe_next) + 1
+
+    lemma keep_validated_queue:
+        forall q: option int_item. q <> None /\ wellformed_item q ->
+            wellformed_item (!@q).c_next.stqe_next
+
+    lemma child_is_in_queue:
+        forall q, q2: option int_item.
+            elm_in_queue q q2 /\ valid (!@q2).c_next.stqe_next ->
+                elm_in_queue q (!@q2).c_next.stqe_next
+
+    lemma null_not_in_queue:
+        forall q, elm: option int_item.
+            not valid elm -> not elm_in_queue q elm
+
+    lemma last_element_is_in_queue:
+        forall q: int_queue.
+            valid (!^q).stqh_first && wellformed_item (!^q).stqh_first && valid (last_element_queue !^q.stqh_first) ->
+                valid (last_element_queue !^q.stqh_first) ->
+                elm_in_queue (!^q.stqh_first) (last_element_queue !^q.stqh_first)
+
+    (* funcs *)
+
+    let init_queue(q: int_queue) : unit
+        requires {valid q}
+        ensures {size_of_queue (!^q).stqh_first = 0}
+        ensures {wellformed_list q}
+        ensures {Option.is_none (!^q).stqh_first}
+        ensures {!((!^q).stqh_last) = (!^q).stqh_first} (* Changer pour éviter de déférencer, mais prendre le ptr plutôt*)
+        writes {(!^q).stqh_first, (!^q).stqh_last}
+    = 
+        (!^q).stqh_first <- None;
+        (!^q).stqh_last := (!^q).stqh_first
+
+    let empty(q: int_queue)
+        requires {valid q}
+        requires {wellformed_list q}
+        ensures {wellformed_list q}
+        ensures {result = Option.is_none (!^q).stqh_first}
+    =
+        Option.is_none (!^q).stqh_first
+
+    let first(q: int_queue)
+        requires {valid q}
+        requires {wellformed_list q}
+        ensures {wellformed_list q}
+        ensures {wellformed_item result}
+        ensures {result = (!^q).stqh_first}
+    =
+        (!^q).stqh_first
+
+    let next(q: option int_item)
+        requires {valid q}
+        requires {wellformed_item q}
+        ensures {wellformed_item q}
+        ensures {wellformed_item result}
+    =
+        !@q.c_next.stqe_next
+
+    let foreach(q: int_queue)
+        requires {wellformed_list q}
+        ensures {wellformed_list q}
+    =
+        let derefQ: inside_queue = !^q in
+        let elm = ref derefQ.stqh_first in  
+
+        while not (Option.is_none !elm) do
+            invariant {wellformed_item !elm}
+            invariant {wellformed_list q}
+            invariant {valid !elm -> 
+                elm_in_queue (!^q).stqh_first !elm}
+            variant {size_of_queue !elm}
+            let noOpt = !@(!elm) in
+            elm := noOpt.c_next.stqe_next
+        done
+
+    let foreach_from(q: int_queue) (item: option int_item)
+        requires {wellformed_list q}
+        requires {wellformed_item item}
+        requires {item <> None -> elm_in_queue (!^q).stqh_first item}
+        ensures {wellformed_list q}
+        ensures {wellformed_item item}
+        ensures {item <> None -> elm_in_queue (!^q).stqh_first item}
+    =
+        let derefQ: inside_queue = !^q in
+        let elm = if (Option.is_none item) then ref derefQ.stqh_first else ref item in  
+
+        while not (Option.is_none !elm) do
+            invariant {wellformed_item !elm}
+            invariant {wellformed_list q}
+            invariant {valid !elm -> 
+                elm_in_queue (!^q).stqh_first !elm}
+            variant {size_of_queue !elm}
+            let noOpt = !@(!elm) in
+            elm := noOpt.c_next.stqe_next
+        done
+
+    let foreach_safe(q: int_queue)
+        requires {valid q}
+        requires {wellformed_list q}
+        ensures {wellformed_list q}
+    =
+        let derefQ = !^q in
+        let elm = ref derefQ.stqh_first in
+        let safeElm = ref derefQ.stqh_first in
+
+        while not (Option.is_none !elm) do
+            invariant {wellformed_item !elm /\ wellformed_item !safeElm}
+            variant {size_of_queue !elm}
+            let noOpt = !@(!elm) in
+            safeElm := noOpt.c_next.stqe_next;
+            (* du code *)
+            elm := (!safeElm)
+        done
+
+    let foreach_from_safe (q: int_queue) (item: option int_item)
+        requires {valid q}
+        requires {wellformed_list q}
+        requires {wellformed_item item}
+        requires {item <> None -> elm_in_queue (!^q).stqh_first item}
+        ensures {wellformed_list q}
+        ensures {wellformed_item item}
+        ensures {item <> None -> elm_in_queue (!^q).stqh_first item}
+    =
+        let derefQ = !^q in
+        let elm = if (Option.is_none item) then ref derefQ.stqh_first else ref item in
+        let safeElm = if (Option.is_none item) then ref derefQ.stqh_first else ref item in
+
+        while not (Option.is_none !elm) do
+            invariant {wellformed_item !elm /\ wellformed_item !safeElm}
+            variant {size_of_queue !elm}
+            let noOpt = !@(!elm) in
+            safeElm := noOpt.c_next.stqe_next;
+            (* du code *)
+            elm := (!safeElm)
+        done
+
+    let insert_head (q: int_queue) (item: option int_item)
+        requires {wellformed_list_elm q item}
+        requires {not elm_in_queue (!^q.stqh_first) item}
+        ensures {valid !^q.stqh_first}
+        ensures {!@(!^q.stqh_first).c_next.stqe_next = old(!^q.stqh_first)}
+        ensures {valid !^q.stqh_first}
+        ensures {wellformed_item !@(!^q.stqh_first).c_next.stqe_next}
+        ensures {not elm_in_queue (!@(!^q.stqh_first).c_next.stqe_next) item}
+        ensures {wellformed_item !^q.stqh_first}
+        ensures {!@(!^q.stqh_first).number = !@item.number}
+        ensures {size_of_queue !^q.stqh_first = size_of_queue (old(!^q.stqh_first)) + 1}
+        writes {!^q.stqh_first, !^q.stqh_last}
+    =
+        let newItem = Some {
+            number = !@item.number;
+            c_next = {
+                stqe_next = !^q.stqh_first
+            }
+        } in
+
+        if Option.is_none !^q.stqh_first then
+            (!^q).stqh_last := (!@newItem).c_next.stqe_next;
+
+        (!^q).stqh_first <- newItem
+
+    let insert_tail (q: int_queue) (item: option int_item)
+        requires {valid item}
+        requires {wellformed_list_elm q item}
+        ensures {wellformed_list q}
+        ensures {!@(last_element_queue !^q.stqh_first).number = (!@item).number}
+        (*ensures {size_of_queue !^q.stqh_first = size_of_queue (old(!^q.stqh_first))}*)
+        writes {!^q.stqh_first, !^q.stqh_last}
+
+        (*ensures {size_of_queue (!^q).stqh_first = size_of_queue (old((!^q).stqh_first)) + 1}
+        ensures {last_element_queue(!^q.stqh_first) = !@(!^q.stqh_first).c_next.stqe_next}*)
+    =
+        (* Reconstruct recursively the queue *)
+        let newItem = Some {
+            number = !@item.number;
+            c_next = {stqe_next = None}
+        } in
+
+        let rec addTailElement (itemList: option int_item)
+            requires{wellformed_item itemList}
+            ensures {wellformed_item result}
+            ensures {valid result}
+            ensures {not valid itemList -> result = newItem}
+            ensures {last_element_queue result = newItem}
+            variant{size_of_queue itemList}
+        =
+            match itemList with
+                | None -> newItem
+                | Some x -> Some {
+                    number = x.number;
+                    c_next = {stqe_next = addTailElement x.c_next.stqe_next}
+                }
+            end in
+
+        !^q.stqh_first <- addTailElement !^q.stqh_first;
+        !^q.stqh_last := !@newItem.c_next.stqe_next
+
+    let insert_after (q: int_queue) (item: ref (option int_item)) (after: option int_item)
+        requires {wellformed_list_elm q !item}
+        requires {valid after}
+        requires {wellformed_item after}
+        requires {wellformed_item !item}
+        requires {wellformed_item (!^q).stqh_first}
+        requires {valid !^q.stqh_first}
+        requires {elm_in_queue !^q.stqh_first after}
+        writes {!^q.stqh_first, !^q.stqh_last}
+        (*ensures {!(!^q.stqh_last) = 
+            !@(last_element_queue !^q.stqh_first).c_next.stqe_next}*)
+        ensures {wellformed_list q}
+        ensures {elm_in_queue !^q.stqh_first !item}
+        ensures {size_of_queue (!^q).stqh_first = size_of_queue (old((!^q).stqh_first)) + 1}
+
+        (*
+        ensures {last_element_queue(!^q.stqh_first) = !@(!^q.stqh_first).c_next.stqe_next}*)
+    =
+        (* Peut-être on aura besoin de cette référence *)
+        let endQueue = ref None in
+
+        let rec addAfterElement (itemList: option int_item) (item: ref (option int_item)) (after: option int_item): option int_item
+            requires {valid !item && valid after && 
+                wellformed_item !item && wellformed_item after &&
+                valid itemList && wellformed_item itemList}
+            ensures {wellformed_item result}
+            ensures {itemList = after -> (!@result).number = (!@after).number && !@((!@result).c_next.stqe_next).number = (!@(!item)).number}
+            variant{size_of_queue itemList}
+        =
+            (* Renvoyer l'élément, on n'a plus besoin d'utiliser la récursion *)
+            if eq_enum itemList after then 
+                (endQueue := Some {
+                    number = !@(!item).number;
+                    c_next = {stqe_next = !@after.c_next.stqe_next}
+                };
+
+                Some {
+                    number = !@after.number;
+                    c_next = {
+                        stqe_next = !endQueue
+                    }
+                })
+            else
+                (addAfterElement (!@itemList.c_next.stqe_next) item after) in
+
+        !^q.stqh_first <- addAfterElement !^q.stqh_first item after;
+
+        if Option.is_none (!@after).c_next.stqe_next then
+            !^q.stqh_last := !@(!endQueue).c_next.stqe_next
+
+    let remove (q: int_queue) (elm: option int_item)
+        requires {elm_in_queue !^q.stqh_first elm}
+        requires {wellformed_list q}
+        requires {valid elm}
+        requires {wellformed_item elm}
+        ensures {valid q}
+        ensures {valid elm}
+        (*ensures {not elm_in_queue !^q.stqh_first elm}. Doute sur la comparaison why3, c'est une comparaison physique ou structurelle ?*)
+        writes {!^q.stqh_first, !^q.stqh_last}
+    =
+        if (eq_enum !^q.stqh_first elm) then
+            (!^q.stqh_first <- !@(!^q.stqh_first).c_next.stqe_next;
+            if Option.is_none !^q.stqh_first then
+                !^q.stqh_last := !^q.stqh_first
+            )
+        else (
+            let rec newList (curElm: option int_item): option int_item 
+                requires {wellformed_item curElm}
+                variant {size_of_queue curElm - 1}
+                (*variant {size_of_queue_byElement curElm elm}*)
+            =
+                if Option.is_none curElm then
+                    None
+                else
+                    Some {
+                        number = !@curElm.number;
+                        c_next = {
+                            stqe_next = (if eq_enum (!@curElm.c_next.stqe_next) elm then
+                                !@elm.c_next.stqe_next
+                            else
+                                newList !@curElm.c_next.stqe_next)
+                        }
+                    } in
+
+            (!^q).stqh_first <- (newList !^q.stqh_first);
+
+            if Option.is_none !@elm.c_next.stqe_next then
+                (!^q).stqh_last := !@elm.c_next.stqe_next)
+
+    let concat (q1: int_queue) (q2: int_queue)
+        requires {wellformed_list q1 /\ wellformed_list q2}
+        ensures {(!^q2).stqh_first = None}
+        ensures {!((!^q2).stqh_last) = None}
+        ensures {valid (!^q2).stqh_first -> last_element_queue (!^q1).stqh_first = last_element_queue (old !^q2.stqh_first)}
+        ensures {valid (!^q2).stqh_first -> size_of_queue (!^q1).stqh_first = size_of_queue (old !^q1.stqh_first) + size_of_queue (old !^q2.stqh_first)}
+        writes {!^q1.stqh_first, !^q1.stqh_last, !^q2.stqh_first, !^q2.stqh_last}
+    =
+        if not (Option.is_none (!^q2).stqh_first) then (
+            (* Recursive concat *)
+            let rec newList (curElm: option int_item): option int_item 
+                requires {wellformed_item curElm}
+                variant {size_of_queue curElm}
+            =
+                if Option.is_none curElm then
+                    (!^q2).stqh_first
+                else
+                    Some {
+                        number = !@curElm.number;
+                        c_next = {
+                            stqe_next = newList (!@curElm).c_next.stqe_next
+                        }
+                    } in
+
+            (!^q1).stqh_first <- newList (!^q1).stqh_first;
+            (!^q1).stqh_last := !((!^q2).stqh_last);
+            (!^q2).stqh_first <- None;
+            (!^q2.stqh_last) := (!^q2.stqh_first)
+        )
+    
+    let swap (q1: int_queue) (q2: int_queue)
+        requires {valid q1 /\ valid q2}
+        writes {!^q1.stqh_first, !^q1.stqh_last, !^q2.stqh_first, !^q2.stqh_last}
+    =
+        let oldFirst = (!^q1).stqh_first in
+        let oldLast = (!^q1).stqh_last in
+
+        (!^q1).stqh_first <- (!^q2).stqh_first;
+        (!^q1).stqh_last := !((!^q2).stqh_last);
+        (!^q2).stqh_first <- oldFirst;
+        (!^q2).stqh_last := !oldLast;
+
+        if (Option.is_none !^q1.stqh_first) then
+            (!^q1.stqh_last) := (!^q1.stqh_first);
+
+        if (Option.is_none !^q2.stqh_first) then
+            (!^q2.stqh_last) := (!^q2.stqh_first)
+
+    let main () =
+        let inside_queue: inside_queue = {
+            stqh_first = None;
+            stqh_last = ref None
+        } in
+
+        let queue: int_queue = Some (ref inside_queue) in
+        let item = Some {
+            c_next = {
+                stqe_next = None;
+            };
+            number = 5
+        } in
+
+        init_queue queue;
+        assert {not Option.is_none item};
+        assert {wellformed_list queue};
+        assert {one_instance item (add None Fset.empty)};
+        assert {no_shared_elements (!^queue).stqh_first item};
+        insert_head queue item
+end

@@ -1,0 +1,355 @@
+Exemple 2:
+[| struct type name |]* -->
+/*@requires wellformed_list_contains_elm(q, elm);
+   @requires elm_in_queue(q->stqh_first, elm);
+   @requires !\separated(q->stqh_first, elm) ==> !elm_in_queue((q->stqh_first)->c_next.stqe_next, q->stqh_first) && !elm_in_queue((q->stqh_first)->c_next.stqe_next->c_next.stqe_next, (q->stqh_first)->c_next.stqe_next) && 
+         !elm_in_queue((q->stqh_first)->c_next.stqe_next->c_next.stqe_next, q->stqh_first) && !elm_in_queue((q->stqh_first)->c_next.stqe_next, elm);
+   @requires !\separated(elm, q->stqh_first) && \valid(q->stqh_first->c_next.stqe_next) ==> \forall int_item *item; elm_in_queue(q->stqh_first->c_next.stqe_next, item) ==> \separated(item, elm);
+
+   @behavior first_element_without_follow:
+   @  assumes !\separated(elm, q->stqh_first) && q->stqh_first->c_next.stqe_next == \null;
+
+   @  assigns q->stqh_first, q->stqh_last;
+   @  ensures !\separated(q->stqh_last, &(q->stqh_first));
+   @  ensures q->stqh_first == \null;
+   @  ensures !elm_in_queue(q->stqh_first, elm);
+   @  ensures size_of_queue(q->stqh_first, 0) == 0;
+
+   @behavior first_element_with_follow:
+   @  assumes !\separated(elm, q->stqh_first) 
+      && \valid(q->stqh_first->c_next.stqe_next);
+   @  assigns q->stqh_first;
+   @  ensures !elm_in_queue(elm->c_next.stqe_next, elm);
+   @  ensures \valid(q->stqh_first);
+   @  ensures !\separated(elm->c_next.stqe_next, q->stqh_first);
+   @  ensures \separated(elm, q->stqh_first);
+   @  ensures !elm_in_queue(q->stqh_first, elm);
+   @  ensures size_of_queue(elm, 0) == size_of_queue(q->stqh_first, 0) + 1;
+
+   @behavior next_elements_last_elm:
+   @  assumes \separated(q->stqh_first, elm) && elm->c_next.stqe_next == \null && \separated(elm, q->stqh_first);
+   @  assigns q->stqh_last;
+   @  ensures wellformed_list(q);
+   @  ensures !elm_in_queue(q->stqh_first, elm);
+   @  ensures size_of_queue{Old}(q->stqh_first, 0) == size_of_queue(q->stqh_first, 1) + 1;
+
+   @behavior next_elements_not_last:
+   @  assumes \separated(q->stqh_first, elm) && \valid(elm->c_next.stqe_next) && \separated(elm, q->stqh_first);
+   @  assigns \nothing; // Chercher l'objet ? Dire qu'il est assign ?
+   @  ensures wellformed_list(q);
+   @  ensures !elm_in_queue(q->stqh_first, elm);
+      @  ensures size_of_queue{Old}(q->stqh_first, 0) == size_of_queue(q->stqh_first, 1) + 1;
+
+   @ complete behaviors;
+   @ disjoint behaviors;
+*/
+
+void REMOVE(int_queue *q, int_item *elm)
+{
+   if (q->stqh_first == elm){
+    	int_item *tmp = (q->stqh_first)->c_next.stqe_next;
+l: ;
+      q->stqh_first = tmp;
+      if (tmp == (void *)0)
+         q->stqh_last = &(q->stqh_first);
+   } else {
+    	int_item *curelm = q->stqh_first;
+      /*@
+         loop invariant wellformed_item(curelm);
+         loop assigns curelm;
+         loop invariant elm_in_queue(q->stqh_first, curelm);
+         loop invariant elm_in_queue(curelm, elm);
+         loop invariant \valid(q->stqh_first) && \valid(curelm) && \valid(elm);
+         loop invariant \separated(q->stqh_first, curelm->c_next.stqe_next);
+
+         loop invariant \valid(curelm->c_next.stqe_next) || q->stqh_last == &(curelm->c_next.stqe_next);
+         loop invariant wellformed_item(curelm->c_next.stqe_next);
+         loop invariant elm_in_queue(q->stqh_first, elm);
+         loop invariant elm_in_queue(curelm, elm);
+         loop invariant !elm_in_queue(elm->c_next.stqe_next, elm);
+         loop invariant \valid(curelm->c_next.stqe_next) ==> elm_in_queue(q->stqh_first, curelm->c_next.stqe_next);
+         loop variant size_of_queue(curelm, 0);
+      */
+      while (curelm->c_next.stqe_next != elm)
+         curelm = curelm->c_next.stqe_next;
+
+      if ((curelm->c_next.stqe_next = curelm->c_next.stqe_next->c_next.stqe_next) == (void *)0)
+         q->stqh_last = &(curelm->c_next.stqe_next);
+   };
+} 
+
+
+--> lambda(x, y)* + [| \valid(...) |] + loop assigns + loop x + func_name{Old}(...) -->
+/*@requires (wellformed_list_contains_elm q elm);
+   @requires (elm_in_queue q->stqh_first elm);
+   @requires (!\separated q->stqh_first elm) ==> (!elm_in_queue (q->stqh_first)->c_next.stqe_next q->stqh_first) && (!elm_in_queue (q->stqh_first)->c_next.stqe_next->c_next.stqe_next (q->stqh_first)->c_next.stqe_next) && 
+         !(elm_in_queue (q->stqh_first)->c_next.stqe_next->c_next.stqe_next q->stqh_first) && !(elm_in_queue(q->stqh_first)->c_next.stqe_next elm);
+   @requires (!\separated elm q->stqh_first) && (valid q->stqh_first->c_next.stqe_next) ==> \forall int_item *item; (elm_in_queue q->stqh_first->c_next.stqe_next item) ==> (\separated item elm);
+   @  ensures !(elm_in_queue q->stqh_first elm);
+   @  ensures old(size_of_queue q->stqh_first 0) == (size_of_queue q->stqh_first 1) + 1;
+   @  ensures wellformed_list q;
+
+   @behavior first_element_without_follow:
+   @  assumes !(\separated elm q->stqh_first) && q->stqh_first->c_next.stqe_next == \null;
+
+   @  assigns q->stqh_first, q->stqh_last;
+   @  ensures !(\separated q->stqh_last &(q->stqh_first));
+   @  ensures q->stqh_first == \null;
+
+   @behavior first_element_with_follow:
+   @  assumes !(\separated elm q->stqh_first) 
+      && (valid q->stqh_first->c_next.stqe_next);
+   @  assigns q->stqh_first;
+   @  ensures !(elm_in_queue elm->c_next.stqe_next elm);
+   @  ensures (valid q->stqh_first);
+   @  ensures !(\separatedelm->c_next.stqe_next q->stqh_first);
+   @  ensures (\separated elm q->stqh_first);
+
+   @behavior next_elements_last_elm:
+   @  assumes (\separated q->stqh_first elm) && elm->c_next.stqe_next == \null && (\separated elm q->stqh_first);
+   @  assigns q->stqh_last;
+
+   @behavior next_elements_not_last:
+   @  assumes \separated(q->stqh_first, elm) && (valid elm->c_next.stqe_next) && (\separated elm q->stqh_first);
+   @  assigns \nothing; // Chercher l'objet ? Dire qu'il est assign ?
+
+   @ complete behaviors;
+   @ disjoint behaviors;
+*/
+
+void REMOVE(int_queue *q, int_item *elm)
+{
+   if (q->stqh_first == elm){
+    	int_item *tmp = (q->stqh_first)->c_next.stqe_next;
+l: ;
+      q->stqh_first = tmp;
+      if (tmp == (void *)0)
+         q->stqh_last = &(q->stqh_first);
+   } else {
+    	int_item *curelm = q->stqh_first;
+      /*@
+         invariant (wellformed_item curelm);
+         invariant (elm_in_queue q->stqh_first curelm);
+         invariant (elm_in_queue curelm elm);
+         invariant (valid q->stqh_first) && (valid curelm) && (valid elm);
+         invariant (\separated q->stqh_first curelm->c_next.stqe_next);
+
+         invariant (valid curelm->c_next.stqe_next) || q->stqh_last == &(curelm->c_next.stqe_next);
+         invariant (wellformed_item curelm->c_next.stqe_next);
+         invariant (elm_in_queue q->stqh_first elm);
+         invariant (elm_in_queue curelm elm);
+         invariant !(elm_in_queue elm->c_next.stqe_next elm);
+         invariant (valid curelm->c_next.stqe_next) ==> (elm_in_queue q->stqh_first curelm->c_next.stqe_next);
+         variant (size_of_queue curelm 0);
+      */
+      while (curelm->c_next.stqe_next != elm)
+         curelm = curelm->c_next.stqe_next;
+
+      if ((curelm->c_next.stqe_next = curelm->c_next.stqe_next->c_next.stqe_next) == (void *)0)
+         q->stqh_last = &(curelm->c_next.stqe_next);
+   };
+}
+
+--> [| (type*)0 | = \null | == \null |] + [| var_name == None |] + [| if (cond) {code_body} else {code_body} |]
+   + [| while (cond) {code_body} |] + [| type name (type1 x, type2 y, ...){code_body} |] + retirer assigns 
+   + [| type name = rvalue; |] -->
+
+/*@requires (wellformed_list_contains_elm q elm);
+   @requires (elm_in_queue q->stqh_first elm);
+   @requires (!\separated q->stqh_first elm) ==> (!elm_in_queue (q->stqh_first)->c_next.stqe_next q->stqh_first) && (!elm_in_queue (q->stqh_first)->c_next.stqe_next->c_next.stqe_next (q->stqh_first)->c_next.stqe_next) && 
+         !(elm_in_queue (q->stqh_first)->c_next.stqe_next->c_next.stqe_next q->stqh_first) && !(elm_in_queue(q->stqh_first)->c_next.stqe_next elm);
+   @requires (!\separated elm q->stqh_first) && (valid q->stqh_first->c_next.stqe_next) ==> \forall int_item *item; (elm_in_queue q->stqh_first->c_next.stqe_next item) ==> (\separated item elm);
+   @  ensures !(elm_in_queue q->stqh_first elm);
+   @  ensures old(size_of_queue q->stqh_first 0) == (size_of_queue q->stqh_first 1) + 1;
+   @  ensures wellformed_list q;
+   @  writes {q->stqh_first, q->stqh_last}
+
+   @behavior first_element_without_follow:
+   @  assumes !(\separated elm q->stqh_first) && Option.is_none q->stqh_first->c_next.stqe_next;
+   @  ensures !(\separated q->stqh_last &(q->stqh_first));
+   @  ensures Option.is_none q->stqh_first;
+
+   @behavior first_element_with_follow:
+   @  assumes !(\separated elm q->stqh_first) 
+      && (valid q->stqh_first->c_next.stqe_next);
+   @  ensures !(elm_in_queue elm->c_next.stqe_next elm);
+   @  ensures (valid q->stqh_first);
+   @  ensures !(\separated elm->c_next.stqe_next q->stqh_first);
+   @  ensures (\separated elm q->stqh_first);
+*/
+
+let REMOVE (q: pointer int_queue) (elm: ref int_item) = 
+   if (q->stqh_first == elm) then (
+    	let tmp = (q->stqh_first)->c_next.stqe_next;
+
+      q->stqh_first = tmp;
+      if (Option.is_none tmp) then
+         q->stqh_last = &(q->stqh_first);
+    ) else (
+    	let curelm = ref q->stqh_first in
+      /*@
+         invariant (wellformed_item curelm);
+         invariant (elm_in_queue q->stqh_first curelm);
+         invariant (elm_in_queue curelm elm);
+         invariant (valid q->stqh_first) && (valid curelm) && (valid elm);
+         invariant (\separated q->stqh_first curelm->c_next.stqe_next);
+
+         invariant (valid curelm->c_next.stqe_next) || q->stqh_last == &(curelm->c_next.stqe_next);
+         invariant (wellformed_item curelm->c_next.stqe_next);
+         invariant (elm_in_queue q->stqh_first elm);
+         invariant (elm_in_queue curelm elm);
+         invariant !(elm_in_queue elm->c_next.stqe_next elm);
+         invariant (valid curelm->c_next.stqe_next) ==> (elm_in_queue q->stqh_first curelm->c_next.stqe_next);
+         variant (size_of_queue curelm 0);
+      */
+      while (curelm->c_next.stqe_next != elm) do
+         curelm = curelm->c_next.stqe_next
+      done
+
+      if (Option.is_none (curelm->c_next.stqe_next = curelm->c_next.stqe_next->c_next.stqe_next))
+         q->stqh_last = &(curelm->c_next.stqe_next);
+    );;
+
+
+--> @ ensures {TOUT LES REQUIRES avec old -> les conditions d'ensures} + [| x = rvalue; |] + [| x = &y |] + !(type | let) [| var_name |]
+   + [| x == y |] ET x y sont des pointeurs de type T
+
+/*@requires (wellformed_list_contains_elm q elm);
+   @requires {elm_in_queue (!^q).stqh_first elm};
+   @requires {(compare_int_item elm (!^q).stqh_first) && (valid (!^q).stqh_first->c_next.stqe_next) ==> \forall int_item *item; (elm_in_queue (!^q).stqh_first->c_next.stqe_next item) ==> (\separated item elm)};
+   @  ensures {not (elm_in_queue (!^q).stqh_first elm)};
+   @  ensures {old(size_of_queue (!^q).stqh_first 0) == (size_of_queue (!^q).stqh_first 1) + 1};
+   @  ensures {wellformed_list q};
+   @  ensures {(old(compare_int_item elm (!^q).stqh_first) && Option.is_none (!^q).stqh_first->c_next.stqe_next) ==>
+      Option.is_none (!^q).stqh_first}
+   @  ensures {(old(compare_int_item elm (!^q).stqh_first) && (valid (!^q).stqh_first->c_next.stqe_next)) ==>
+      (not (elm_in_queue elm->c_next.stqe_next elm) && (valid (!^q).stqh_first) && (compare_int_item elm->c_next.stqe_next (!^q).stqh_first) &&
+         )}
+   @  ensures not (compare_int_item !@elm !@(!^q).stqh_first)
+   @  writes {(!^q).stqh_first, (!^q).stqh_last}
+*/
+
+let REMOVE (q: pointer int_queue) (elm: ref int_item) = 
+   if (compare_int_item (!^q).stqh_first elm) then (
+    	let tmp = (!@((!^q).stqh_first)).c_next.stqe_next;
+
+      (!^q).stqh_first := tmp;
+      if (Option.is_none tmp) then
+         (!^q.stqh_last) := (!^q.stqh_first);
+    ) else (
+    	let curelm = ref (!^q.stqh_first) in
+      /*@
+         invariant (wellformed_item curelm);
+         invariant (elm_in_queue (!^q.stqh_first) curelm);
+         invariant (elm_in_queue curelm elm);
+         invariant (valid (!^q).stqh_first) && (valid curelm) && (valid elm);
+         invariant (\separated (!^q.stqh_first) (!@curelm.c_next.stqe_next));
+
+         invariant (valid (!@curelm).c_next.stqe_next) || (!^q).stqh_last == &((!@curelm).c_next.stqe_next);
+         invariant (wellformed_item (!^curelm).c_next.stqe_next);
+         invariant (elm_in_queue (!^q.stqh_first) elm);
+         invariant (elm_in_queue curelm elm);
+         invariant not (elm_in_queue (!@elm.c_next.stqe_next) elm);
+         invariant (valid (!^curelm).c_next.stqe_next) ==> (elm_in_queue (!^q.stqh_first) (!@curelm).c_next.stqe_next);
+         variant (size_of_queue curelm 0);
+      */
+      while (not compare_int_item (!@curelm).c_next.stqe_next elm) do
+         curelm := (!@curelm).c_next.stqe_next
+      done
+
+      let rec gen (parent: int_item) (newValue: int_item) (retour: ref int_item):
+         variant {size_of_queue parent}
+         if (not (compare_int_item parent !curelm)) then (
+            return Some {
+               number = !@parent.number;
+               c_next = {
+                  stqe_next = gen((!@parent).c_next.stqe_next, newValue, retour);
+               }
+            }
+         ) else {
+            retour := Some {
+               number = !@curelm.number;
+               c_next = {
+                  stqe_next = newValue;
+               }
+            }
+
+            !retour
+         }
+
+      (!^q).stqh_first := (gen !@q->stqh_first !@(!@curelm.c_next.stqe_next).c_next.stqe_next curelm)
+
+      if (Option.is_none !@curelm.c_next.stqe_next) then
+         !^q.stqh_last := (!@curelm).c_next.stqe_next;
+    );;
+
+Replacer les ensures/requires + retirer les @ -->
+
+
+let REMOVE (q: pointer int_queue) (elm: ref int_item) = 
+   requires (wellformed_list_contains_elm q elm);
+   requires {elm_in_queue (!^q).stqh_first elm};
+   requires {(compare_int_item elm (!^q).stqh_first) && (valid (!^q).stqh_first->c_next.stqe_next) ==> \forall int_item *item; (elm_in_queue (!^q).stqh_first->c_next.stqe_next item) ==> (\separated item elm)};
+   ensures {not (elm_in_queue (!^q).stqh_first elm)};
+   ensures {old(size_of_queue (!^q).stqh_first 0) == (size_of_queue (!^q).stqh_first 1) + 1};
+   ensures {wellformed_list q};
+   ensures {(old(compare_int_item elm (!^q).stqh_first) && Option.is_none (!^q).stqh_first->c_next.stqe_next) ==>
+      Option.is_none (!^q).stqh_first}
+   ensures {(old(compare_int_item elm (!^q).stqh_first) && (valid (!^q).stqh_first->c_next.stqe_next)) ==>
+         (not (elm_in_queue elm->c_next.stqe_next elm) && (valid (!^q).stqh_first) && (compare_int_item elm->c_next.stqe_next (!^q).stqh_first) &&
+            )}
+   ensures not (compare_int_item !@elm !@(!^q).stqh_first)
+   writes {(!^q).stqh_first, (!^q).stqh_last}
+
+   if (compare_int_item (!^q).stqh_first elm) then (
+    	let tmp = (!@((!^q).stqh_first)).c_next.stqe_next;
+
+      (!^q).stqh_first := tmp;
+      if (Option.is_none tmp) then
+         (!^q.stqh_last) := (!^q.stqh_first);
+    ) else (
+    	let curelm = ref (!^q.stqh_first) in
+      /*@
+         invariant (wellformed_item curelm);
+         invariant (elm_in_queue (!^q.stqh_first) curelm);
+         invariant (elm_in_queue curelm elm);
+         invariant (valid (!^q).stqh_first) && (valid curelm) && (valid elm);
+         invariant (\separated (!^q.stqh_first) (!@curelm.c_next.stqe_next));
+
+         invariant (valid (!@curelm).c_next.stqe_next) || (!^q).stqh_last == &((!@curelm).c_next.stqe_next);
+         invariant (wellformed_item (!^curelm).c_next.stqe_next);
+         invariant (elm_in_queue (!^q.stqh_first) elm);
+         invariant (elm_in_queue curelm elm);
+         invariant not (elm_in_queue (!@elm.c_next.stqe_next) elm);
+         invariant (valid (!^curelm).c_next.stqe_next) ==> (elm_in_queue (!^q.stqh_first) (!@curelm).c_next.stqe_next);
+         variant (size_of_queue curelm 0);
+      */
+      while (not compare_int_item (!@curelm).c_next.stqe_next elm) do
+         curelm := (!@curelm).c_next.stqe_next
+      done
+
+      let rec gen (parent: int_item) (newValue: int_item) (retour: ref int_item):
+         variant {size_of_queue parent}
+         if (not (compare_int_item parent !curelm)) then (
+            return Some {
+               number = !@parent.number;
+               c_next = {
+                  stqe_next = gen((!@parent).c_next.stqe_next, newValue, retour);
+               }
+            }
+         ) else {
+            retour := Some {
+               number = !@curelm.number;
+               c_next = {
+                  stqe_next = newValue;
+               }
+            }
+
+            !retour
+         }
+
+      (!^q).stqh_first := (gen !@q->stqh_first !@(!@curelm.c_next.stqe_next).c_next.stqe_next curelm)
+
+      if (Option.is_none !@curelm.c_next.stqe_next) then
+         !^q.stqh_last := (!@curelm).c_next.stqe_next;
+    );;
